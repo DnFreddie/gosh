@@ -1,0 +1,42 @@
+#!/bin/bash
+set -e
+
+if [ -z "$TMUX" ]; then
+  echo "Not in tmux"
+  exit 0
+fi
+
+dir=$(find "$HOME" -maxdepth 4 -type d \( -name .cache -o -name go -o -name node_modules \) -prune -o -type d -print | sed "s|^$HOME/||" | fzf --layout=reverse)
+
+if [[ -n "$dir" ]]; then
+  session_name=$(basename "$dir")
+
+  if [[ "$session_name" == .* ]]; then
+    session_name="${session_name:1}"
+  fi
+
+  if tmux has-session -t "$session_name" 2> /dev/null; then
+    echo "Attaching to existing session: $session_name" > /dev/null
+    if [ -n "$TMUX" ]; then
+      tmux switch-client -t "$session_name"
+    else
+      tmux attach-session -t "$session_name"
+    fi
+  else
+    echo "Creating new session: $session_name" > /dev/null
+    if [ "$dir" == "$HOME" ]; then
+      tmux new-session -d -s "$session_name"
+    else
+      tmux new-session -d -s "$session_name" -c "$HOME/$dir"
+    fi
+
+    if [ -n "$TMUX" ]; then
+      tmux switch-client -t "$session_name"
+    else
+      tmux attach-session -t "$session_name"
+    fi
+  fi
+else
+  echo "Directory not found or not selected."
+  return 1
+fi

@@ -1,0 +1,30 @@
+#!/bin/bash
+set -e
+
+fcs() {
+
+  if [ -z "$TMUX" ]; then
+    echo "Not in tmux"
+    return
+  fi
+
+  local selected_host
+  local session_name
+
+  selected_host=$(grep -oP '^(?:Host)\s+\K\w+' "$HOME/.ssh/config" | fzf --layout=reverse)
+
+  if [ -z "$selected_host" ]; then
+    echo "No host selected."
+    return
+  fi
+
+  session_name="ssh@$selected_host"
+
+  if ! tmux has-session -t "$session_name" 2> /dev/null; then
+    tmux new-session -d -s "$session_name" -n "ssh" "ssh $selected_host"
+  fi
+
+  tmux switch-client -t "$session_name"
+}
+
+fcs
