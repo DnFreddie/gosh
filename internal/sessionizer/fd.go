@@ -1,7 +1,7 @@
 /*
 Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 */
-package cmd
+package sessionizer
 
 import (
 	"fmt"
@@ -12,7 +12,7 @@ import (
 )
 
 // fdCmd represents the fd command
-var fdCmd = &cobra.Command{
+var FdCmd = &cobra.Command{
 	Use:   "fd",
 	Short: "List all dirs in home and lest u create the session else switches to one",
 	Run: func(cmd *cobra.Command, args []string) {
@@ -24,7 +24,6 @@ var fdCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(fdCmd)
 
 	// Here you will define your flags and configuration settings.
 

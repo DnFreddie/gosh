@@ -1,7 +1,7 @@
 /*
 Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 */
-package cmd
+package sessionizer
 
 import (
 	"fmt"
@@ -14,7 +14,7 @@ import (
 
 var url_string string
 
-var fgCmd = &cobra.Command{
+var FgCmd = &cobra.Command{
 	Use:   "fg",
 	Short: "Chose or a github repo if not exitent download it and create a session ",
 	Long: `Uses gh to list available repos then if not exist in ~/HOME/github.com/DnFreddie
@@ -37,7 +37,6 @@ it will clone it and switch session  else it will create a tmux session
 }
 
 func init() {
-	rootCmd.AddCommand(fgCmd)
 
-	fgCmd.Flags().StringVarP(&url_string, "url", "u", "", "URL to clone and change session")
+	FgCmd.Flags().StringVarP(&url_string, "url", "u", "", "URL to clone and change session")
 }
