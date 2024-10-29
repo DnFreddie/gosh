@@ -1,14 +1,13 @@
 .PHONY: build test install clean
 
 build:
-    go build
+	go build
 
 test:
-    go test -v ./...
+	go test -v ./...
 
 clean:
-    go mod tidy
+	go mod tidy
 
 install:
-    go get
-
+	go get
