@@ -12,6 +12,12 @@ import (
 	"strings"
 )
 
+var TOOLBOX = []string{
+	"cli/cli",
+	"mikefarah/yq",
+	"junegunn/fzf",
+}
+
 // Config holds configuration for the installer
 type Config struct {
 	TargetDir string // Directory where executables will be installed (default: ~/.local/bin)
@@ -25,7 +31,6 @@ type Installer struct {
 	repos  []*Repo
 }
 
-// Repo represents a GitHub repository
 type Repo struct {
 	Owner   string
 	Name    string
@@ -117,7 +122,7 @@ func (r *Repo) fetchRelease(client *http.Client) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("error: received non-200 response code %d", resp.StatusCode)
+		return fmt.Errorf("error: received non-200 response code %d\nfor %s", resp.StatusCode, apiURL)
 	}
 
 	var release GitHubRelease

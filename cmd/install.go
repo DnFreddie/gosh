@@ -18,23 +18,26 @@ var installCmd = &cobra.Command{
 Example usage:
   gosh install mikefarah/yq DnFreddie/gosh
   gosh install --target ~/.local/bin mikefarah/yq
-  gosh install cli/cli:gh `,
+  gosh install cli/cli:gh
+  gosh install --toolbox`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) == 0 {
-			fmt.Println("at least one repository must be specified")
-			return nil
-		}
-
 		targetDir, err := cmd.Flags().GetString("target")
 		if err != nil {
-			fmt.Println("error getting target directory: %w", err)
-			return nil
+			return fmt.Errorf("error getting target directory: %w", err)
 		}
 
 		tempDir, err := cmd.Flags().GetString("temp")
 		if err != nil {
-			fmt.Println("error getting temp directory: %w", err)
-			return nil
+			return fmt.Errorf("error getting temp directory: %w", err)
+		}
+
+		toolbox, err := cmd.Flags().GetBool("toolbox")
+		if err != nil {
+			return fmt.Errorf("error getting toolbox flag: %w", err)
+		}
+
+		if !toolbox && len(args) == 0 {
+			return fmt.Errorf("at least one repository must be specified")
 		}
 
 		config := installer.Config{
@@ -42,15 +45,18 @@ Example usage:
 			TempDir:   tempDir,
 		}
 
-		inst, err := installer.NewInstaller(config, args)
+		repos := args
+		if toolbox {
+			repos = installer.TOOLBOX
+		}
+
+		inst, err := installer.NewInstaller(config, repos)
 		if err != nil {
-			fmt.Println("failed to create installer: %w", err)
-			return nil
+			return fmt.Errorf("failed to create installer: %w", err)
 		}
 
 		if err := inst.Install(); err != nil {
-			fmt.Println("installation failed: %w", err)
-			return nil
+			return fmt.Errorf("installation failed: %w", err)
 		}
 
 		fmt.Println("Installation completed successfully!")
@@ -72,4 +78,6 @@ func init() {
 
 	installCmd.Flags().StringP("target", "t", defaultTargetDir, "Target directory for installed binaries")
 	installCmd.Flags().String("temp", defaultTempDir, "Temporary directory for downloads")
+	installCmd.Flags().Bool("toolbox", false, "Whether to download an entire toolbox")
 }
+
