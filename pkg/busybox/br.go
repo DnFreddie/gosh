@@ -26,6 +26,8 @@ func ProcessLine(bracket, line string) {
 		formatted = fmt.Sprintf("\"%s\"", trimmedLine)
 	case "c":
 		formatted = fmt.Sprintf("```bash\n%s\n```", line)
+	case "a":
+		formatted = fmt.Sprintf("\"{{ %s }}\"", line)
 	default:
 		formatted = fmt.Sprintf("%s%s%s", bracket, trimmedLine, bracket)
 	}
