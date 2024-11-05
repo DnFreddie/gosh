@@ -9,7 +9,36 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// installCmd represents the install command
+// completionCmd handles shell completion generation
+var completionCmd = &cobra.Command{
+	Use:   "compl [command-name]",
+	Short: "Generate shell completions for a command",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		shell, err := cmd.Parent().Flags().GetString("shell")
+		if err != nil {
+			return fmt.Errorf("error getting shell type: %w", err)
+		}
+
+		completionDir, err := cmd.Parent().Flags().GetString("completion-dir")
+		if err != nil {
+			return fmt.Errorf("error getting completion directory: %w", err)
+		}
+
+		completer := installer.NewCompleter(args[0]).
+			SetShell(shell).
+			SetOutputDir(completionDir)
+
+		if err := completer.Save(); err != nil {
+			return fmt.Errorf("failed to generate completion: %w", err)
+		}
+
+		fmt.Printf("Generated %s completion for %s\n", shell, args[0])
+		return nil
+	},
+}
+
+// installCmd handles GitHub binary installation
 var installCmd = &cobra.Command{
 	Use:   "install [owner/repo...]",
 	Short: "Install GitHub released binaries",
@@ -66,6 +95,7 @@ Example usage:
 
 func init() {
 	rootCmd.AddCommand(installCmd)
+	installCmd.AddCommand(completionCmd)
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -75,9 +105,11 @@ func init() {
 
 	defaultTargetDir := filepath.Join(homeDir, ".local", "bin")
 	defaultTempDir := os.TempDir()
+	defaultCompletionDir := filepath.Join(homeDir, ".local", "share", "completions")
 
 	installCmd.Flags().StringP("target", "t", defaultTargetDir, "Target directory for installed binaries")
 	installCmd.Flags().String("temp", defaultTempDir, "Temporary directory for downloads")
 	installCmd.Flags().Bool("toolbox", false, "Whether to download an entire toolbox")
+	installCmd.Flags().String("shell", "bash", "Shell type for completion generation (bash, zsh, fish)")
+	installCmd.Flags().String("completion-dir", defaultCompletionDir, "Directory for storing completion files")
 }
-
