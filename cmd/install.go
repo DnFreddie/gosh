@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/DnFreddie/gosh/pkg/installer"
@@ -93,9 +95,55 @@ Example usage:
 	},
 }
 
+var snippetCmd = &cobra.Command{
+	Use:   "snip",
+	Short: "Interact with code snippets",
+	Long:  `The snippet command allows you to manage and use code snippets.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		chosenSnippet, err := installer.ChoseSnippet()
+		if err != nil {
+			return err
+		}
+
+		f, err := os.Open(chosenSnippet)
+		defer func() {
+			f.Close()
+		}()
+		reader := io.Reader(f)
+
+		snippet, err := installer.GetSnippet(reader)
+		if err != nil {
+			return err
+		}
+
+		snippet.PrintSnippet()
+		pwd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+
+		filePath := path.Join(pwd, snippet.Name)
+		_, err = os.Stat(filePath)
+		if os.IsNotExist(err) {
+			err = os.WriteFile(filePath, snippet.Content.Bytes(), 0644)
+			if err != nil {
+				return err
+			}
+		} else {
+
+			red := "\033[31m"
+			reset := "\033[0m"
+			return fmt.Errorf(red+"The File already exists: %s"+reset, filepath.Base(filePath))
+		}
+
+		return nil
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(installCmd)
 	installCmd.AddCommand(completionCmd)
+	installCmd.AddCommand(snippetCmd)
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
