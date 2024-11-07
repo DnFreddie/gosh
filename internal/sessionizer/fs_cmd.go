@@ -6,8 +6,6 @@ package sessionizer
 import (
 	"fmt"
 
-	"github.com/DnFreddie/gosh/internal"
-	"github.com/DnFreddie/gosh/scripts"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +15,7 @@ var FsCmd = &cobra.Command{
 	Short: "Read .ssh/config and create or switch the tmux session ",
 	Long:  `Have to be inside  tmux and requiers fzf  `,
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := internal.RunScript(scripts.Fs); err != nil {
+		if err := Fs(); err != nil {
 			fmt.Println(err)
 			return
 		}

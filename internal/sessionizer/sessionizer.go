@@ -1,15 +1,96 @@
 package sessionizer
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/DnFreddie/gosh/pkg/busybox"
 )
+
+func Fs() error {
+	tmux, err := NewTmux("", "")
+
+	home := os.Getenv("HOME")
+	if len(home) == 0 {
+		return errors.New("Failed to find ssh config")
+	}
+	sshConfig := path.Join(home, ".ssh/config")
+	f, err := os.Open(sshConfig)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		f.Close()
+	}()
+
+	reader := io.Reader(f)
+	hosts, err := GetHosts(reader)
+
+	if err != nil {
+		return err
+	}
+	choice, err := busybox.RunTerm(hosts)
+
+	if err != nil {
+		return err
+
+	}
+	tmux.session_name = fmt.Sprintf("ssh@%s", string(choice))
+	tmux.abs_path = home
+	if err := tmux.CreateSession(); err != nil {
+		return err
+	}
+	command := fmt.Sprintf("ssh %s", string(choice))
+	if _, err := tmux.Run("send-keys", "-t", tmux.session_name, command, "C-m"); err != nil {
+		return err
+	}
+	return nil
+
+}
+
+type Host string
+
+func (h Host) String() string {
+	return string(h)
+}
+
+func GetHosts(r io.Reader) ([]Host, error) {
+	var hosts []Host
+	s := bufio.NewScanner(r)
+	for s.Scan() {
+		line := s.Bytes()
+		host := findHost(line)
+		if len(host) == 0 {
+			continue
+		}
+		hosts = append(hosts, Host(host))
+	}
+	if err := s.Err(); err != nil {
+		return nil, err
+	}
+	if len(hosts) == 0 {
+		return hosts, errors.New("No hosts found")
+	}
+	return hosts, nil
+}
+
+func findHost(line []byte) string {
+	regx := `(?i)^Host\s+(\w+)`
+	re := regexp.MustCompile(regx)
+	matches := re.FindSubmatch(line)
+	if len(matches) < 2 {
+		return ""
+	}
+	return string(matches[1])
+}
 
 func Fd() error {
 	tmux, err := NewTmux("", "")
@@ -19,14 +100,12 @@ func Fd() error {
 	}
 	dirs, err := Find(home)
 	choice, err := busybox.RunTerm(dirs)
-
 	if err != nil {
 		return fmt.Errorf("Directory not found or not selected: %v\n", err)
 	}
-	for k, v := range choice {
-		tmux.SetName(k)
-		tmux.abs_path = v
-	}
+
+	tmux.abs_path = string(choice)
+	tmux.SetName(string(choice.String()))
 	err = tmux.CreateSession()
 	if err != nil {
 		return err
@@ -51,10 +130,8 @@ func Vf() error {
 		return fmt.Errorf("Directory not found or not selected: %v\n", err)
 	}
 
-	for k, v := range choice {
-		tmux.SetName(k)
-		tmux.abs_path = v
-	}
+	tmux.SetName(string(choice))
+	tmux.abs_path = string(choice)
 
 	if _, err := tmux.Run("new-window", "-c", tmux.abs_path, "$EDITOR ."); err != nil {
 		return err
@@ -66,16 +143,18 @@ func Vf() error {
 // Find searches for directories within the specified directory up to a depth of 3.
 // It returns a slice of maps where each map contains the basename and absolute path of a directory.
 // The function limits concurrent processing to 5 goroutines.
-func Find(dir string) ([]map[string]string, error) {
+type Path string
 
-	var dirMaps []map[string]string
-	var dirMapsMutex sync.Mutex
+func (p Path) String() string {
+	return path.Base(string(p))
+}
 
+func Find(dir string) ([]Path, error) {
+	//toSkip := []string{".cache", ".local", "node_modules", ".git"}
+	var absolutePaths []Path
 	var errorsArr []error
 	var errorsMutex sync.Mutex
-
 	buffered := make(chan struct{}, 5)
-
 	var wg sync.WaitGroup
 
 	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -85,8 +164,8 @@ func Find(dir string) ([]map[string]string, error) {
 			errorsMutex.Unlock()
 			return nil
 		}
-
 		if !d.IsDir() {
+
 			return nil
 		}
 
@@ -97,23 +176,18 @@ func Find(dir string) ([]map[string]string, error) {
 			errorsMutex.Unlock()
 			return nil
 		}
-
 		depth := 1
 		if relPath != "." {
 			depth = strings.Count(relPath, string(os.PathSeparator)) + 1
 		}
-
-		if depth > 2 {
+		if depth > 3 {
 			return filepath.SkipDir
 		}
-
 		buffered <- struct{}{}
 		wg.Add(1)
-
 		go func(p string) {
 			defer wg.Done()
 			defer func() { <-buffered }()
-
 			absPath, err := filepath.Abs(p)
 			if err != nil {
 				errorsMutex.Lock()
@@ -121,27 +195,16 @@ func Find(dir string) ([]map[string]string, error) {
 				errorsMutex.Unlock()
 				return
 			}
-
-			basename := filepath.Base(p)
-			dirMap := map[string]string{basename: absPath}
-
-			dirMapsMutex.Lock()
-			dirMaps = append(dirMaps, dirMap)
-			dirMapsMutex.Unlock()
+			absolutePaths = append(absolutePaths, Path(absPath))
 		}(path)
-
 		return nil
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("error walking the path %s: %w", dir, err)
 	}
-
 	wg.Wait()
-
 	if len(errorsArr) > 0 {
 		return nil, errors.Join(errorsArr...)
 	}
-
-	return dirMaps, nil
+	return absolutePaths, nil
 }

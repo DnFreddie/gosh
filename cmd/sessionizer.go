@@ -11,7 +11,7 @@ import (
 // sessionizerCmd represents the sessionizer command
 var sessionizerCmd = &cobra.Command{
 	Use:     "sessionizer [fd/fs/fg/vf]",
-	Aliases: []string{"ss"},
+	Aliases: []string{"s"},
 	Short:   "Maniputlate tmux sessions",
 	Run: func(cmd *cobra.Command, args []string) {
 		cmd.Help()

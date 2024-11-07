@@ -139,19 +139,17 @@ func read() (Key, rune) {
 	}
 }
 
-func RunTerm[T any](maps []map[string]T) (map[string]T, error) {
+type Stringer interface {
+	String() string
+}
+
+func RunTerm[T Stringer](items []T) (T, error) {
 	var input string
 	var selectionIndex int
 
-	combinedItems := make(map[string]T)
-	for _, m := range maps {
-		for k, v := range m {
-			combinedItems[k] = v
-		}
-	}
-
-	if len(combinedItems) == 0 {
-		return nil, fmt.Errorf("No items available.")
+	if len(items) == 0 {
+		var null T
+		return null, fmt.Errorf("No items available.")
 	}
 
 	term := NewTerm()
@@ -168,7 +166,7 @@ func RunTerm[T any](maps []map[string]T) (map[string]T, error) {
 		term.Clear()
 		InColors(Cyan, fmt.Sprintf("> %s\n\n", input))
 
-		filteredItems := filterItems(combinedItems, input)
+		filteredItems := filterItems(items, input)
 
 		// Adjust selection index to be within bounds.
 		if len(filteredItems) == 0 {
@@ -192,7 +190,7 @@ func RunTerm[T any](maps []map[string]T) (map[string]T, error) {
 		case Enter:
 			if len(filteredItems) > 0 {
 				selected := filteredItems[selectionIndex]
-				return map[string]T{selected: combinedItems[selected]}, nil
+				return selected, nil
 			}
 		case UpArrow:
 			if selectionIndex > 0 {
@@ -214,37 +212,35 @@ func isControlRune(r rune) bool {
 	return r < 32 || r == 127
 }
 
-func displayResults(filteredItems []string, selectionIndex int) {
+func displayResults[T Stringer](filteredItems []T, selectionIndex int) {
 	if len(filteredItems) == 0 {
 		InColors(Red, "No results found.\n")
 	} else {
 		fmt.Print(ResetCursor)
 		for i, item := range filteredItems {
 			if i == selectionIndex {
-				InColors(Blue, fmt.Sprintf("> %v\n", item))
+				InColors(Blue, fmt.Sprintf("> %v\n", item.String()))
 				fmt.Print(ResetCursor)
 			} else {
-				fmt.Printf("  %v\n", item)
+				fmt.Printf("  %v\n", item.String())
 				fmt.Print(ResetCursor)
 			}
 		}
 	}
 }
 
-func filterItems[T any](items map[string]T, input string) []string {
-	filtered := make(map[string]T)
+func filterItems[T Stringer](items []T, input string) []T {
+	filtered := make([]T, 0, len(items))
 	inputLower := strings.ToLower(input)
 
-	for key := range items {
-		if strings.Contains(strings.ToLower(key), inputLower) {
-			filtered[key] = items[key]
+	for _, item := range items {
+		if strings.Contains(strings.ToLower(item.String()), inputLower) {
+			filtered = append(filtered, item)
 		}
 	}
-	keys := make([]string, 0, len(filtered))
-	for key := range filtered {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+	sort.Slice(filtered, func(i, j int) bool {
+		return filtered[i].String() < filtered[j].String()
+	})
 
-	return keys
+	return filtered
 }

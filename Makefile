@@ -1,7 +1,7 @@
 .PHONY: build test clean install
 
 build:
-	go build
+	go build -o g
 
 test:
 	go test -v ./...
