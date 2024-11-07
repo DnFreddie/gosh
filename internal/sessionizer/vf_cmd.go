@@ -6,17 +6,16 @@ package sessionizer
 import (
 	"fmt"
 
-	"github.com/DnFreddie/gosh/internal"
-	"github.com/DnFreddie/gosh/scripts"
 	"github.com/spf13/cobra"
 )
 
-// fdCmd represents the fd command
-var FdCmd = &cobra.Command{
-	Use:   "fd",
-	Short: "List all dirs in home and lest u create the session else switches to one",
+// vfCmd represents the tn command
+var VfCmd = &cobra.Command{
+	Use:   "vf",
+	Short: "Look on directories in home and open one in nvim in tmux pane",
 	Run: func(cmd *cobra.Command, args []string) {
-		if err := internal.RunScript(scripts.Fd); err != nil {
+
+		if err := Vf(); err != nil {
 			fmt.Println(err)
 			return
 		}
@@ -29,9 +28,9 @@ func init() {
 
 	// Cobra supports Persistent Flags which will work for this command
 	// and all subcommands, e.g.:
-	// fdCmd.PersistentFlags().String("foo", "", "A help for foo")
+	// tnCmd.PersistentFlags().String("foo", "", "A help for foo")
 
 	// Cobra supports local flags which will only run when this command
 	// is called directly, e.g.:
-	// fdCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	// tnCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
