@@ -4,21 +4,20 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package sessionizer
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
 // fsCmd represents the fs command
 var FsCmd = &cobra.Command{
-	Use:   "fs",
-	Short: "Read .ssh/config and create or switch the tmux session ",
-	Long:  `Have to be inside  tmux and requiers fzf  `,
-	Run: func(cmd *cobra.Command, args []string) {
+	Use:          "fs",
+	Short:        "Read .ssh/config and create or switch the tmux session ",
+	SilenceUsage: true,
+	Long:         `Chose the Host and ssh into it wiht new tmux session created`,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := Fs(); err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
+		return nil
 	},
 }
 

@@ -4,7 +4,7 @@ build:
 	go build -o g
 
 test:
-	go test -v ./...
+	go test  ./...
 
 clean:
 	go mod tidy

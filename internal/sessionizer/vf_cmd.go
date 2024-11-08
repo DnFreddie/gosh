@@ -4,21 +4,20 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package sessionizer
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
 // vfCmd represents the tn command
 var VfCmd = &cobra.Command{
-	Use:   "vf",
-	Short: "Look on directories in home and open one in nvim in tmux pane",
-	Run: func(cmd *cobra.Command, args []string) {
+	Use:          "vf",
+	Short:        "Look on directories in home and open one in nvim in tmux pane",
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
 
 		if err := Vf(); err != nil {
-			fmt.Println(err)
-			return
+			return err
 		}
+		return nil
 	},
 }
 

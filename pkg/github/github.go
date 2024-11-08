@@ -151,12 +151,13 @@ func (r *Repo) Clone(dir string) error {
 	go utils.WaitingScreen(done, "Cloning")
 
 	cmd := exec.Command("git", "clone", r.URL, location)
-	slog.Info("Cloning ", "path", location, "name", r.FullName)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to clone repository: %w", err)
-	}
 
-	fmt.Printf("Successfully cloned %s/%s", r.Owner, r.Name)
+	slog.Info("Cloning", "path", location, "name", r.FullName)
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to clone repository: %v", err)
+	}
+	fmt.Printf("Successfully cloned %s", r.FullName)
 	return nil
 }
 

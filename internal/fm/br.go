@@ -1,7 +1,6 @@
 package fm
 
 import (
-	"fmt"
 	"io"
 	"os"
 
@@ -28,15 +27,19 @@ Examples:
   echo "hello" | fm br (    -> (hello)
   echo "code" | fm br c     -> bash code
   echo "test" | fm br s     -> "test"`,
-	Args: cobra.ExactArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
+
+		if len(args) == 0 {
+			return cmd.Usage()
+		}
 		input, err := io.ReadAll(os.Stdin)
 
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 		busybox.ProcessLine(args[0], string(input))
+		return nil
 	},
 }
 

@@ -4,22 +4,20 @@ Copyright © 2024 NAME HERE <EMAIL ADDRESS>
 package sessionizer
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
 // fdCmd represents the fd command
 var FdCmd = &cobra.Command{
-	Use:   "fd",
-	Short: "List all dirs in home and lest u create the session else switches to one",
-	Run: func(cmd *cobra.Command, args []string) {
+	Use:          "fd",
+	Short:        "List all dirs in home and lest u create the session else switches to one",
+	SilenceUsage: true,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := Fd(); err != nil {
 
-			fmt.Println(err)
-			return
+			return err
 		}
-		return
+		return nil
 	},
 }
 
