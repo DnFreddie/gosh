@@ -10,14 +10,14 @@ import (
 )
 
 //go:embed *
-var Scripts embed.FS
+var Embeded embed.FS
 
 type COMMAND string
 
 func RunScript(name COMMAND, flag ...string) error {
 
 	scriptPath := string(name)
-	s, err := Scripts.Open(scriptPath)
+	s, err := Embeded.Open(scriptPath)
 	if err != nil {
 		return fmt.Errorf("error opening script file: %w", err)
 	}
