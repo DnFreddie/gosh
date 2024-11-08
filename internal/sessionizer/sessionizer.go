@@ -5,14 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
 	"github.com/DnFreddie/gosh/pkg/busybox"
+	"github.com/DnFreddie/gosh/pkg/github"
 )
 
 func Fs() error {
@@ -150,10 +153,11 @@ func (p Path) String() string {
 }
 
 func Find(dir string) ([]Path, error) {
-	//toSkip := []string{".cache", ".local", "node_modules", ".git"}
+	toSkip := []string{".cache", ".local", "node_modules", ".git"}
 	var absolutePaths []Path
 	var errorsArr []error
 	var errorsMutex sync.Mutex
+	var pathsMutex sync.Mutex
 	buffered := make(chan struct{}, 5)
 	var wg sync.WaitGroup
 
@@ -164,9 +168,13 @@ func Find(dir string) ([]Path, error) {
 			errorsMutex.Unlock()
 			return nil
 		}
-		if !d.IsDir() {
 
+		if !d.IsDir() {
 			return nil
+		}
+
+		if slices.Contains(toSkip, filepath.Base(path)) {
+			return filepath.SkipDir
 		}
 
 		relPath, err := filepath.Rel(dir, path)
@@ -176,6 +184,7 @@ func Find(dir string) ([]Path, error) {
 			errorsMutex.Unlock()
 			return nil
 		}
+
 		depth := 1
 		if relPath != "." {
 			depth = strings.Count(relPath, string(os.PathSeparator)) + 1
@@ -183,11 +192,13 @@ func Find(dir string) ([]Path, error) {
 		if depth > 3 {
 			return filepath.SkipDir
 		}
+
 		buffered <- struct{}{}
 		wg.Add(1)
 		go func(p string) {
 			defer wg.Done()
 			defer func() { <-buffered }()
+
 			absPath, err := filepath.Abs(p)
 			if err != nil {
 				errorsMutex.Lock()
@@ -195,16 +206,51 @@ func Find(dir string) ([]Path, error) {
 				errorsMutex.Unlock()
 				return
 			}
+
+			pathsMutex.Lock()
 			absolutePaths = append(absolutePaths, Path(absPath))
+			pathsMutex.Unlock()
 		}(path)
 		return nil
 	})
+
 	if err != nil {
 		return nil, fmt.Errorf("error walking the path %s: %w", dir, err)
 	}
+
 	wg.Wait()
+
 	if len(errorsArr) > 0 {
 		return nil, errors.Join(errorsArr...)
 	}
+
 	return absolutePaths, nil
+}
+
+func Fg(gitDir string) error {
+
+	rm, err := github.NewRepoManager(github.USER_REPOS, &http.Client{})
+	if err != nil {
+		return fmt.Errorf("failed to initialize RepoManager: %w", err)
+	}
+
+	repo, err := busybox.RunTerm(rm.Repos)
+	if err != nil {
+		return fmt.Errorf("failed to run terminal command: %w", err)
+	}
+
+	if err = repo.Clone(gitDir); !errors.Is(err, github.RepoExistErr{}) {
+		return fmt.Errorf("failed to clone repository: %w", err)
+	}
+
+	t, err := NewTmux(repo.Name, repo.Path)
+	if err != nil {
+		return fmt.Errorf("failed to create new Tmux session: %w", err)
+	}
+
+	if err := t.CreateSession(); err != nil {
+		return fmt.Errorf("failed to create Tmux session: %w", err)
+	}
+
+	return nil
 }

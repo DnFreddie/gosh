@@ -1,15 +1,48 @@
 package scripts
 
-import "embed"
+import (
+	"embed"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"strings"
+)
 
 //go:embed *
 var Scripts embed.FS
 
 type COMMAND string
 
-const (
-	Fd COMMAND = "fd"
-	Fg COMMAND = "fg"
-	Vf COMMAND = "vf"
-	Fs COMMAND = "fs"
-)
+func RunScript(name COMMAND, flag ...string) error {
+
+	scriptPath := string(name)
+	s, err := Scripts.Open(scriptPath)
+	if err != nil {
+		return fmt.Errorf("error opening script file: %w", err)
+	}
+	defer s.Close()
+
+	script, err := io.ReadAll(s)
+	if err != nil {
+		return fmt.Errorf("error reading script file: %w", err)
+	}
+
+	c := exec.Command("bash")
+
+	c.Stdin = strings.NewReader(string(script))
+
+	if len(flag) > 0 {
+		c = exec.Command("bash", append([]string{"-s", "-"}, flag...)...)
+		c.Stdin = strings.NewReader(string(script))
+	}
+
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
+
+	if err := c.Run(); err != nil {
+		return fmt.Errorf("error executing script")
+	}
+
+	return nil
+}
