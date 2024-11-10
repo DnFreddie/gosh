@@ -34,7 +34,6 @@ to quickly create a Cobra application.`,
 			if err != nil {
 				fmt.Println(err)
 				continue
-
 			}
 			f, err := os.Open(abs)
 			defer func() {
@@ -44,8 +43,8 @@ to quickly create a Cobra application.`,
 				fmt.Println(err)
 				continue
 			}
-			h := busybox.NewHighlighter(filePath, io.Reader(f))
-			if err := h.Highlight(); err != nil {
+			h := busybox.NewHighlightedPager(filePath, io.Reader(f))
+			if err := h.Run(); err != nil {
 				fmt.Println(err)
 			}
 		}
