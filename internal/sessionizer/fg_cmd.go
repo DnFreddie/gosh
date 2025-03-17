@@ -46,11 +46,12 @@ func init() {
 
 func cloneAndTmux(url, reposDir string) error {
 	repo, err := github.NewRepo(url)
+
 	if err != nil {
 		return fmt.Errorf("error creating repo: %w", err)
 	}
 
-	if err := repo.Clone(reposDir); !errors.Is(err, github.RepoExistErr{}) {
+	if err := repo.Clone(reposDir); err != nil && !errors.Is(err, github.RepoExistErr{}) {
 		return fmt.Errorf("error cloning repo: %w", err)
 	}
 
