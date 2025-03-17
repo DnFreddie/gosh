@@ -101,14 +101,24 @@ func Fd() error {
 	if len(home) == 0 {
 		return errors.New("Failed to find HOMEDIR")
 	}
+	// so this add now the full path
 	dirs, err := Find(home)
-	choice, err := busybox.RunTerm(dirs)
+	var display []Path
+
+	for _, v := range dirs {
+		shorten := strings.Replace(v.String(), home, "", 1)
+		fmt.Println(shorten)
+		display = append(display, Path(shorten))
+	}
+
+	choice, err := busybox.RunTerm(display)
 	if err != nil {
 		return fmt.Errorf("Directory not found or not selected: %v\n", err)
 	}
 
-	tmux.abs_path = string(choice)
-	tmux.SetName(string(choice.String()))
+	abs_choice := path.Join(home, choice.String())
+	tmux.abs_path = abs_choice
+	tmux.SetName(path.Base(choice.String()))
 	err = tmux.CreateSession()
 	if err != nil {
 		return err
@@ -149,7 +159,7 @@ func Vf() error {
 type Path string
 
 func (p Path) String() string {
-	return path.Base(string(p))
+	return string(p)
 }
 
 func Find(dir string) ([]Path, error) {
