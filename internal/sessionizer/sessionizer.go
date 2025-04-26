@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -260,6 +261,40 @@ func Fg(gitDir string) error {
 
 	if err := t.CreateSession(); err != nil {
 		return fmt.Errorf("failed to create Tmux session: %w", err)
+	}
+
+	return nil
+}
+
+func (t *Tmux) Tn() error {
+	var choice int
+	sessions, err := t.ListSessions()
+	if err != nil {
+		return err
+	}
+
+	fmt.Print("Enter session number: ")
+	var input string
+	fmt.Scanln(&input)
+
+	isNotDigit := func(c rune) bool { return c < '0' || c > '9' }
+	if strings.IndexFunc(input, isNotDigit) == -1 {
+
+		choice, err = strconv.Atoi(input)
+		if err != nil {
+			return err
+		}
+		if choice > len(sessions) {
+			return fmt.Errorf("Choice out of bound")
+		}
+
+		t.SetName(sessions[choice])
+		err := t.SwitchSession()
+		if err != nil {
+			return err
+		}
+	} else {
+		return fmt.Errorf("input contains non-digit characters")
 	}
 
 	return nil

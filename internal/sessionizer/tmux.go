@@ -27,6 +27,7 @@ func NewTmux(sessionName, dir string) (*Tmux, error) {
 	}, nil
 
 }
+
 func (t *Tmux) SetName(s string) {
 	if strings.HasPrefix(s, ".") {
 		t.session_name = s[1:]
@@ -65,6 +66,47 @@ func (t *Tmux) HasSession() (bool, error) {
 	return true, nil
 }
 
+const (
+	ColorIndex       = "\033[38;2;181;126;220m"
+	ColorSessionName = "\033[1;38;2;150;150;170m"
+	ColorDescription = "\033[38;2;120;120;120m"
+	ColorReset       = "\033[0m"
+)
+
+func (t *Tmux) ListSessions() ([]string, error) {
+	stdout, err := t.Run("list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		return nil, err
+	}
+	trimmed := strings.TrimSpace(stdout)
+	sessions := strings.Split(trimmed, "\n")
+	filtered := make([]string, 0, len(sessions))
+
+	for _, s := range sessions {
+		if s != "" {
+			filtered = append(filtered, s)
+		}
+	}
+
+	if len(sessions) == 0 {
+		return nil, errors.New("No sessions found ")
+	}
+
+	for i, session := range filtered {
+		fmt.Printf("%s%2d%s: %s%s%s\n",
+			ColorIndex, i, ColorReset,
+			ColorSessionName, session, ColorReset)
+	}
+
+	return filtered, nil
+}
+
+func (t *Tmux) SwitchSession() error {
+	if _, err := t.Run("switch-client", "-t", t.session_name); err != nil {
+		return errors.New(fmt.Sprintf("Failed to attach to the session %v\n", t.session_name))
+	}
+	return nil
+}
 func (t *Tmux) CreateSession() error {
 	exists, err := t.HasSession()
 	if err != nil {

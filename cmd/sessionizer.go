@@ -24,6 +24,7 @@ func init() {
 	sessionizerCmd.AddCommand(sessionizer.VfCmd)
 	sessionizerCmd.AddCommand(sessionizer.FgCmd)
 	sessionizerCmd.AddCommand(sessionizer.FdCmd)
+	sessionizerCmd.AddCommand(sessionizer.TnCmd)
 
 	// Here you will define your flags and configuration settings.
 
