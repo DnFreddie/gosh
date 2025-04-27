@@ -250,7 +250,7 @@ func Fg(gitDir string) error {
 		return fmt.Errorf("failed to run terminal command: %w", err)
 	}
 
-	if err = repo.Clone(gitDir); !errors.Is(err, github.RepoExistErr{}) {
+	if err = repo.Clone(gitDir); err != nil && !errors.Is(err, github.RepoExistErr{}) {
 		return fmt.Errorf("failed to clone repository: %w", err)
 	}
 
