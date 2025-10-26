@@ -49,7 +49,7 @@ func findLanguage(fileName string) string {
 }
 
 type HighlightedPager struct {
-	term     *Terminal
+	term     Term
 	filename string
 	content  io.Reader
 }
@@ -76,12 +76,15 @@ func (hp *HighlightedPager) Run() error {
 		return fmt.Errorf("highlighting content: %w", err)
 	}
 
-	hp.term = NewTerm().(*Terminal)
+	hp.term = NewTerm()
 	defer hp.term.Close()
 
 	if err := hp.term.GetSize(); err != nil {
 		return fmt.Errorf("getting terminal size: %w", err)
 	}
+
+	hp.term.EnterAltBuffer()
+	defer hp.term.ExitAltBuffer()
 
 	hp.displayLoop(lines)
 	return nil
@@ -123,54 +126,58 @@ func (hp *HighlightedPager) getHighlightedLines() ([]string, error) {
 
 func (hp *HighlightedPager) displayLoop(lines []string) {
 	offset := 0
-	pageSize := hp.term.Height - 1 // Save space for status line
+	pageSize := hp.term.Height() - 1 // Save space for status line
+
+	hp.renderScreen(lines, offset, pageSize)
 
 	for {
-		hp.term.Clear()
-		hp.displayPage(lines, offset, pageSize)
-		hp.displayStatusLine(offset, len(lines))
-
 		if !hp.handleNavigation(&offset, lines, pageSize) {
 			return
 		}
+		hp.renderScreen(lines, offset, pageSize)
 	}
 }
 
-func (hp *HighlightedPager) displayPage(lines []string, offset, pageSize int) {
+func (hp *HighlightedPager) renderScreen(lines []string, offset, pageSize int) {
+	var buf bytes.Buffer
+
+	buf.WriteString(MoveCursorHome)
+	buf.WriteString(ClearToEOS)
+
 	for i := 0; i < pageSize && offset+i < len(lines); i++ {
-		// Reset cursor to start of line before printing
-		fmt.Print(ResetCursor)
-		fmt.Println(lines[offset+i])
+		buf.WriteString(lines[offset+i])
+		buf.WriteString(ClearToEOL)
+		buf.WriteString(CRLF)
 	}
+
+	hp.buildStatusLine(&buf, offset, len(lines))
+
+	fmt.Print(buf.String())
 }
 
-func (hp *HighlightedPager) displayStatusLine(offset, totalLines int) {
-	//currentPage := (offset / (hp.term.Height - 1)) + 1
-	totalPages := (totalLines / (hp.term.Height - 1)) + 1
-	if totalLines%(hp.term.Height-1) == 0 {
-		totalPages--
-	}
+func (hp *HighlightedPager) buildStatusLine(buf *bytes.Buffer, offset, totalLines int) {
+	buf.WriteString(MoveCursorTo(hp.term.Height(), 1))
 
-	fmt.Printf("\033[%d;0H", hp.term.Height)
-	fmt.Print(ResetCursor)
+	buf.WriteString(InverseVideo)
 
-	fmt.Print("\033[7m")
 	statusText := fmt.Sprintf(" File: %s | Line: %d/%d | Press q/Esc to quit ",
 		hp.filename, offset+1, totalLines)
 
-	// Truncate status if  too long
-	if len(statusText) > hp.term.Width {
-		statusText = statusText[:hp.term.Width-3] + "..."
+	// Truncate status if too long
+	termWidth := hp.term.Width()
+	if len(statusText) > termWidth {
+		statusText = statusText[:termWidth-3] + "..."
 	}
 
-	fmt.Print(statusText)
+	buf.WriteString(statusText)
 
-	padding := hp.term.Width - len(statusText)
+	// Pad to full width
+	padding := termWidth - len(statusText)
 	if padding > 0 {
-		fmt.Print(strings.Repeat(" ", padding))
+		buf.WriteString(strings.Repeat(" ", padding))
 	}
 
-	fmt.Print("\033[0m")
+	buf.WriteString(ResetFormatting)
 }
 
 func highlightCode(lang string, content string) error {
@@ -191,8 +198,7 @@ func highlightCode(lang string, content string) error {
 }
 
 func (hp *HighlightedPager) handleNavigation(offset *int, lines []string, pageSize int) bool {
-	key, ch := read()
-
+	key, ch := hp.term.Read()
 	switch key {
 	case CtrlC, Escape:
 		return false
@@ -246,4 +252,3 @@ func (hp *HighlightedPager) handleNavigation(offset *int, lines []string, pageSi
 
 	return true
 }
-

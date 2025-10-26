@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -41,18 +40,20 @@ func Fs() error {
 	if err != nil {
 		return err
 	}
-	choice, err := busybox.RunTerm(hosts)
+	choice, err := busybox.RunTerm(hosts, func(h Host) string {
+		return fmt.Sprintf("%s", h.Name)
+	})
 
 	if err != nil {
 		return err
 
 	}
-	tmux.session_name = fmt.Sprintf("ssh@%s", string(choice))
+	tmux.session_name = fmt.Sprintf("ssh@%s", choice.Name)
 	tmux.abs_path = home
 	if err := tmux.CreateSession(); err != nil {
 		return err
 	}
-	command := fmt.Sprintf("ssh %s", string(choice))
+	command := fmt.Sprintf("ssh %s", choice.Name)
 	if _, err := tmux.Run("send-keys", "-t", tmux.session_name, command, "C-m"); err != nil {
 		return err
 	}
@@ -60,10 +61,8 @@ func Fs() error {
 
 }
 
-type Host string
-
-func (h Host) String() string {
-	return string(h)
+type Host struct {
+	Name string
 }
 
 func GetHosts(r io.Reader) ([]Host, error) {
@@ -75,7 +74,7 @@ func GetHosts(r io.Reader) ([]Host, error) {
 		if len(host) == 0 {
 			continue
 		}
-		hosts = append(hosts, Host(host))
+		hosts = append(hosts, Host{Name: host})
 	}
 	if err := s.Err(); err != nil {
 		return nil, err
@@ -104,22 +103,23 @@ func Fd() error {
 	}
 	// so this add now the full path
 	dirs, err := Find(home)
-	var display []Path
+	var display []string
 
 	for _, v := range dirs {
-		shorten := strings.Replace(v.String(), home, "", 1)
-		fmt.Println(shorten)
-		display = append(display, Path(shorten))
+		shorten_path := strings.Replace(v, home, "", 1)
+		display = append(display, shorten_path)
 	}
 
-	choice, err := busybox.RunTerm(display)
+	choice, err := busybox.RunTerm(display, func(s string) string {
+		return s
+	})
 	if err != nil {
 		return fmt.Errorf("Directory not found or not selected: %v\n", err)
 	}
 
-	abs_choice := path.Join(home, choice.String())
+	abs_choice := path.Join(home, choice)
 	tmux.abs_path = abs_choice
-	tmux.SetName(path.Base(choice.String()))
+	tmux.SetName(path.Base(choice))
 	err = tmux.CreateSession()
 	if err != nil {
 		return err
@@ -139,7 +139,8 @@ func Vf() error {
 	fmt.Println(home)
 	dirs, err := Find(home)
 
-	choice, err := busybox.RunTerm(dirs)
+	choice, err := busybox.RunTerm(dirs, func(s string) string { return s })
+
 	if err != nil {
 		return fmt.Errorf("Directory not found or not selected: %v\n", err)
 	}
@@ -157,15 +158,10 @@ func Vf() error {
 // Find searches for directories within the specified directory up to a depth of 3.
 // It returns a slice of maps where each map contains the basename and absolute path of a directory.
 // The function limits concurrent processing to 5 goroutines.
-type Path string
 
-func (p Path) String() string {
-	return string(p)
-}
-
-func Find(dir string) ([]Path, error) {
+func Find(dir string) ([]string, error) {
 	toSkip := []string{".cache", ".local", "node_modules", ".git"}
-	var absolutePaths []Path
+	var absolutePaths []string
 	var errorsArr []error
 	var errorsMutex sync.Mutex
 	var pathsMutex sync.Mutex
@@ -219,7 +215,7 @@ func Find(dir string) ([]Path, error) {
 			}
 
 			pathsMutex.Lock()
-			absolutePaths = append(absolutePaths, Path(absPath))
+			absolutePaths = append(absolutePaths, absPath)
 			pathsMutex.Unlock()
 		}(path)
 		return nil
@@ -245,7 +241,7 @@ func Fg(gitDir string) error {
 		return fmt.Errorf("failed to initialize RepoManager: %w", err)
 	}
 
-	repo, err := busybox.RunTerm(rm.Repos)
+	repo, err := busybox.RunTerm(rm.Repos, func(r github.Repo) string { return r.Name })
 	if err != nil {
 		return fmt.Errorf("failed to run terminal command: %w", err)
 	}
@@ -267,34 +263,20 @@ func Fg(gitDir string) error {
 }
 
 func (t *Tmux) Tn() error {
-	var choice int
 	sessions, err := t.ListSessions()
 	if err != nil {
 		return err
 	}
 
-	fmt.Print("Enter session number: ")
-	var input string
-	fmt.Scanln(&input)
+	choice, err := busybox.RunTerm(sessions, func(s string) string { return s })
+	if err != nil {
+		return err
+	}
 
-	isNotDigit := func(c rune) bool { return c < '0' || c > '9' }
-	if strings.IndexFunc(input, isNotDigit) == -1 {
-
-		choice, err = strconv.Atoi(input)
-		if err != nil {
-			return err
-		}
-		if choice > len(sessions) {
-			return fmt.Errorf("Choice out of bound")
-		}
-
-		t.SetName(sessions[choice])
-		err := t.SwitchSession()
-		if err != nil {
-			return err
-		}
-	} else {
-		return fmt.Errorf("input contains non-digit characters")
+	t.SetName(choice)
+	err = t.SwitchSession()
+	if err != nil {
+		return err
 	}
 
 	return nil

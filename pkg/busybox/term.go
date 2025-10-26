@@ -24,52 +24,66 @@ const (
 
 // ANSI escape codes for terminal control
 const (
-	clearScreen = "\033[H\033[2J\033[H" // Clear screen and reset cursor
-	resetCursor = "\033[0G"             // Move cursor to start of line
-	hideCursor  = "\033[?25l"           // Hide cursor
-	showCursor  = "\033[?25h"           // Show cursor
+	ClearScreen     = "\033[2J\033[H" // Clear screen and move to home
+	ClearToEOL      = "\033[K"        // Clear from cursor to end of line
+	ClearToEOS      = "\033[J"        // Clear from cursor to end of screen
+	MoveCursorHome  = "\033[H"        // Move cursor to home (top-left)
+	ResetCursor     = "\033[0G"       // Move cursor to start of line
+	HideCursor      = "\033[?25l"     // Hide cursor
+	ShowCursor      = "\033[?25h"     // Show cursor
+	InverseVideo    = "\033[7m"       // Inverse/reverse video
+	ResetFormatting = "\033[0m"       // Reset all formatting
+	CRLF            = "\r\n"          // Carriage return + line feed
+	EnterAltScreen  = "\033[?1049h"   // Enter alternate screen
+	ExitAltScreen   = "\033[?1049l"   // Exit alternate screen
+	SaveScreen      = "\033[?47h"     // Save screen
+	RestoreScreen   = "\033[?47l"     // Restore screen
 )
 
 // ANSI color codes
-const (
-	colorRed    = "\033[31m"
-	colorReset  = "\033[0m"
-	colorGreen  = "\033[32m"
-	colorBlue   = "\033[34m"
-	colorCyan   = "\033[36m"
-	colorYellow = "\033[33m"
-)
 
 type Color string
 
 type EscapeCode string
 
 const (
-	ResetCursor EscapeCode = "\033[0G"   // Move cursor to the beginning of the line
-	HideCursor  EscapeCode = "\033[?25l" // Hide cursor
-	Red         Color      = "\033[31m"
-	Reset       Color      = "\033[0m"
-	Green       Color      = "\033[32m"
-	Blue        Color      = "\033[34m"
-	Cyan        Color      = "\033[36m"
-	Yellow      Color      = "\033[33m"
+	Red    Color = "\033[31m"
+	Reset  Color = "\033[0m"
+	Green  Color = "\033[32m"
+	Blue   Color = "\033[34m"
+	Cyan   Color = "\033[36m"
+	Yellow Color = "\033[33m"
 )
 
-func InColors(c Color, s string) {
-	fmt.Print(c, s, Reset)
+func InColors(c Color, s string) string {
+	return fmt.Sprintf("%s%s%s", c, s, Reset)
+}
+
+func MoveCursorTo(row, col int) string {
+	return fmt.Sprintf("\033[%d;%dH", row, col)
 }
 
 type Term interface {
 	Start()
 	Close()
 	Clear()
+	Read() (Key, rune)
+	GetSize() error
+
+	// Screen buffer management
+	EnterAltBuffer()
+	ExitAltBuffer()
+
+	// Access to terminal dimensions
+	Width() int
+	Height() int
 }
 
 // Terminal implements the [Term] interface
 type Terminal struct {
 	oldState *term.State
-	Width    int
-	Height   int
+	width    int // Changed to lowercase
+	height   int // Changed to lowercase
 	tty      *os.File
 }
 
@@ -78,9 +92,27 @@ func NewTerm() Term {
 	t.Start()
 	return t
 }
+
 func (t *Terminal) Start() {
 	t.startRawMode()
 	t.setupSignalHandler()
+}
+
+func (t *Terminal) Width() int {
+	return t.width
+}
+
+func (t *Terminal) Height() int {
+	return t.height
+}
+
+func (t *Terminal) EnterAltBuffer() {
+	fmt.Print(EnterAltScreen)
+}
+
+func (t *Terminal) ExitAltBuffer() {
+	fmt.Print(ExitAltScreen)
+	fmt.Print(ShowCursor)
 }
 
 func (t *Terminal) setupSignalHandler() {
@@ -101,8 +133,8 @@ func (t *Terminal) GetSize() error {
 		return fmt.Errorf("get terminal size: %w", err)
 	}
 
-	t.Width = width
-	t.Height = height
+	t.width = width   // Changed to lowercase
+	t.height = height // Changed to lowercase
 	return nil
 }
 
@@ -128,7 +160,7 @@ func (t *Terminal) startRawMode() {
 }
 
 func (t *Terminal) Close() {
-	fmt.Print(showCursor)
+	fmt.Print(ShowCursor)
 	t.stopRawMode()
 }
 
@@ -145,22 +177,14 @@ func (t *Terminal) stopRawMode() {
 	}
 }
 
-// Clear clears the terminal screen
 func (t *Terminal) Clear() {
-	fmt.Print(clearScreen)
+	fmt.Print(ClearScreen)
 }
 
-// read reads a single keystroke from the terminal
-func read() (Key, rune) {
-	// Read from /dev/tty instead of stdin
-	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if err != nil {
-		panic(fmt.Sprintf("Failed to open /dev/tty: %v", err))
-	}
-	defer tty.Close()
-
+// Read reads from the terminal's tty file descriptor
+func (t *Terminal) Read() (Key, rune) {
 	buf := make([]byte, 3)
-	n, err := tty.Read(buf)
+	n, err := t.tty.Read(buf)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to read input: %v", err))
 	}
@@ -168,29 +192,9 @@ func read() (Key, rune) {
 		return Unknown, 0
 	}
 
-	switch buf[0] {
-	case 3:
-		return CtrlC, 0
-	case 127:
-		return Backspace, 0
-	case 13, 10:
-		return Enter, 0
-	case 27:
-		if n > 1 && buf[1] == '[' {
-			switch buf[2] {
-			case 'A':
-				return UpArrow, 0
-			case 'B':
-				return DownArrow, 0
-			}
-		}
-		return Escape, 0
-	default:
-		return Other, rune(buf[0])
-	}
+	return parseKey(buf, n)
 }
 
-// parseKey converts raw input bytes into a Key type
 func parseKey(buf []byte, n int) (Key, rune) {
 	switch buf[0] {
 	case 3:
@@ -212,9 +216,4 @@ func parseKey(buf []byte, n int) (Key, rune) {
 	default:
 		return Other, rune(buf[0])
 	}
-}
-
-// PrintColored prints text in the specified color
-func PrintColored(color string, text string) {
-	fmt.Print(color, text, colorReset)
 }
