@@ -20,11 +20,11 @@ var sessionizerCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(sessionizerCmd)
+	rootCmd.AddCommand(sessionizer.TnCmd)
 	sessionizerCmd.AddCommand(sessionizer.FsCmd)
 	sessionizerCmd.AddCommand(sessionizer.VfCmd)
 	sessionizerCmd.AddCommand(sessionizer.FgCmd)
 	sessionizerCmd.AddCommand(sessionizer.FdCmd)
-	sessionizerCmd.AddCommand(sessionizer.TnCmd)
 
 	// Here you will define your flags and configuration settings.
 
