@@ -1,6 +1,3 @@
-/*
-Copyright © 2024 NAME HERE <EMAIL ADDRESS>
-*/
 package sessionizer
 
 import (
@@ -24,14 +21,12 @@ var FgCmd = &cobra.Command{
 ~/HOME/github.com/DnFreddie, it will be cloned and a tmux session created. Otherwise, it switches to an existing session.`,
 	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
-
 		if _reposDir == "" {
 			_reposDir = os.ExpandEnv("${HOME}/github.com")
 		}
 		if _git_url != "" {
 			return cloneAndTmux(_git_url, _reposDir)
 		}
-
 		if err := Fg(_reposDir); err != nil {
 			return fmt.Errorf("error in Fg operation: %w", err)
 		}
@@ -46,24 +41,21 @@ func init() {
 
 func cloneAndTmux(url, reposDir string) error {
 	repo, err := github.NewRepo(url)
-
 	if err != nil {
 		return fmt.Errorf("error creating repo: %w", err)
 	}
-
 	if err := repo.Clone(reposDir); err != nil && !errors.Is(err, github.RepoExistErr{}) {
 		return fmt.Errorf("error cloning repo: %w", err)
 	}
-
 	return handleTmuxSession(repo.Name, repo.Path)
 }
 
 func handleTmuxSession(repoName, repoPath string) error {
-	tmux, err := NewTmux(repoName, repoPath)
+	tmux, err := NewTmux()
 	if err != nil {
 		return err
 	}
-	if err := tmux.CreateSession(); err != nil {
+	if err := tmux.CreateSession(repoName, repoPath); err != nil {
 		return fmt.Errorf("error creating tmux session: %w", err)
 	}
 	return nil

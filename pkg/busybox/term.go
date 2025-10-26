@@ -40,19 +40,31 @@ const (
 	RestoreScreen   = "\033[?47l"     // Restore screen
 )
 
-// ANSI color codes
+type EscapeCode string
 
 type Color string
 
-type EscapeCode string
-
+// ANSI color codes
 const (
-	Red    Color = "\033[31m"
-	Reset  Color = "\033[0m"
-	Green  Color = "\033[32m"
-	Blue   Color = "\033[34m"
-	Cyan   Color = "\033[36m"
-	Yellow Color = "\033[33m"
+	Reset Color = "\033[0m"
+
+	Black   Color = "\033[30m"
+	Red     Color = "\033[31m"
+	Green   Color = "\033[32m"
+	Yellow  Color = "\033[33m"
+	Blue    Color = "\033[34m"
+	Magenta Color = "\033[35m"
+	Cyan    Color = "\033[36m"
+	White   Color = "\033[37m"
+
+	BrightBlack   Color = "\033[90m"
+	BrightRed     Color = "\033[91m"
+	BrightGreen   Color = "\033[92m"
+	BrightYellow  Color = "\033[93m"
+	BrightBlue    Color = "\033[94m"
+	BrightMagenta Color = "\033[95m"
+	BrightCyan    Color = "\033[96m"
+	BrightWhite   Color = "\033[97m"
 )
 
 func InColors(c Color, s string) string {

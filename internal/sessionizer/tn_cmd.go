@@ -27,13 +27,11 @@ var TnCmd = &cobra.Command{
 					return err
 				}
 				if _, err := os.Stat(targetDir); err != nil {
-
 					if os.IsNotExist(err) {
 						return errors.New("The specified path doesn't exist")
 					}
 					return err
 				}
-
 			} else {
 				targetDir, err = os.Getwd()
 				if err != nil {
@@ -41,18 +39,16 @@ var TnCmd = &cobra.Command{
 				}
 			}
 
-			tmux, err := NewTmux("", targetDir)
-
+			tmux, err := NewTmux()
 			if err != nil {
 				return err
 			}
-			tmux.SetName(path.Base(targetDir))
 
-			return tmux.CreateSession()
+			sessionName := path.Base(targetDir)
+			return tmux.CreateSession(sessionName, targetDir)
 		}
 
-		tmux, err := NewTmux(_path, "")
-
+		tmux, err := NewTmux()
 		if err != nil {
 			return err
 		}

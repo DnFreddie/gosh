@@ -19,7 +19,10 @@ import (
 )
 
 func Fs() error {
-	tmux, err := NewTmux("", "")
+	tmux, err := NewTmux()
+	if err != nil {
+		return err
+	}
 
 	home := os.Getenv("HOME")
 	if len(home) == 0 {
@@ -30,35 +33,31 @@ func Fs() error {
 	if err != nil {
 		return err
 	}
-	defer func() {
-		f.Close()
-	}()
+	defer f.Close()
 
 	reader := io.Reader(f)
 	hosts, err := GetHosts(reader)
-
 	if err != nil {
 		return err
 	}
+
 	choice, err := busybox.RunTerm(hosts, func(h Host) string {
 		return fmt.Sprintf("%s", h.Name)
 	})
-
 	if err != nil {
 		return err
-
 	}
-	tmux.session_name = fmt.Sprintf("ssh@%s", choice.Name)
-	tmux.abs_path = home
-	if err := tmux.CreateSession(); err != nil {
+
+	sessionName := fmt.Sprintf("ssh@%s", choice.Name)
+	if err := tmux.CreateSession(sessionName, home); err != nil {
 		return err
 	}
+
 	command := fmt.Sprintf("ssh %s", choice.Name)
-	if _, err := tmux.Run("send-keys", "-t", tmux.session_name, command, "C-m"); err != nil {
+	if _, err := tmux.Run("send-keys", "-t", sessionName, command, "C-m"); err != nil {
 		return err
 	}
 	return nil
-
 }
 
 type Host struct {
@@ -96,15 +95,22 @@ func findHost(line []byte) string {
 }
 
 func Fd() error {
-	tmux, err := NewTmux("", "")
+	tmux, err := NewTmux()
+	if err != nil {
+		return err
+	}
+
 	home := os.Getenv("HOME")
 	if len(home) == 0 {
 		return errors.New("Failed to find HOMEDIR")
 	}
-	// so this add now the full path
-	dirs, err := Find(home)
-	var display []string
 
+	dirs, err := Find(home)
+	if err != nil {
+		return err
+	}
+
+	var display []string
 	for _, v := range dirs {
 		shorten_path := strings.Replace(v, home, "", 1)
 		display = append(display, shorten_path)
@@ -117,47 +123,42 @@ func Fd() error {
 		return fmt.Errorf("Directory not found or not selected: %v\n", err)
 	}
 
-	abs_choice := path.Join(home, choice)
-	tmux.abs_path = abs_choice
-	tmux.SetName(path.Base(choice))
-	err = tmux.CreateSession()
+	absChoice := path.Join(home, choice)
+	sessionName := path.Base(choice)
+
+	err = tmux.CreateSession(sessionName, absChoice)
 	if err != nil {
 		return err
 	}
 	return nil
-
 }
 
 func Vf() error {
-
-	tmux, err := NewTmux("", "")
+	tmux, err := NewTmux()
+	if err != nil {
+		return err
+	}
 
 	home := os.Getenv("HOME")
 	if len(home) == 0 {
 		return errors.New("Failed to find HOMEDIR")
 	}
-	fmt.Println(home)
+
 	dirs, err := Find(home)
+	if err != nil {
+		return err
+	}
 
 	choice, err := busybox.RunTerm(dirs, func(s string) string { return s })
-
 	if err != nil {
 		return fmt.Errorf("Directory not found or not selected: %v\n", err)
 	}
 
-	tmux.SetName(string(choice))
-	tmux.abs_path = string(choice)
-
-	if _, err := tmux.Run("new-window", "-c", tmux.abs_path, "$EDITOR ."); err != nil {
+	if _, err := tmux.Run("new-window", "-c", choice, "$EDITOR ."); err != nil {
 		return err
 	}
 	return nil
-
 }
-
-// Find searches for directories within the specified directory up to a depth of 3.
-// It returns a slice of maps where each map contains the basename and absolute path of a directory.
-// The function limits concurrent processing to 5 goroutines.
 
 func Find(dir string) ([]string, error) {
 	toSkip := []string{".cache", ".local", "node_modules", ".git"}
@@ -235,7 +236,6 @@ func Find(dir string) ([]string, error) {
 }
 
 func Fg(gitDir string) error {
-
 	rm, err := github.NewRepoManager(github.USER_REPOS, &http.Client{})
 	if err != nil {
 		return fmt.Errorf("failed to initialize RepoManager: %w", err)
@@ -250,12 +250,12 @@ func Fg(gitDir string) error {
 		return fmt.Errorf("failed to clone repository: %w", err)
 	}
 
-	t, err := NewTmux(repo.Name, repo.Path)
+	t, err := NewTmux()
 	if err != nil {
-		return fmt.Errorf("failed to create new Tmux session: %w", err)
+		return fmt.Errorf("failed to create new Tmux: %w", err)
 	}
 
-	if err := t.CreateSession(); err != nil {
+	if err := t.CreateSession(repo.Name, repo.Path); err != nil {
 		return fmt.Errorf("failed to create Tmux session: %w", err)
 	}
 
@@ -263,18 +263,13 @@ func Fg(gitDir string) error {
 }
 
 func (t *Tmux) Tn() error {
-	sessions, err := t.ListSessions()
+
+	choice, err := busybox.RunTerm(t.Sessions, func(s TmuxSession) string { return s.Name })
 	if err != nil {
 		return err
 	}
 
-	choice, err := busybox.RunTerm(sessions, func(s string) string { return s })
-	if err != nil {
-		return err
-	}
-
-	t.SetName(choice)
-	err = t.SwitchSession()
+	err = t.SwitchSession(choice.Name)
 	if err != nil {
 		return err
 	}

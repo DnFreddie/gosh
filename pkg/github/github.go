@@ -30,10 +30,6 @@ type Repo struct {
 	Path     string
 }
 
-func (r Repo) String() string {
-	return r.Name
-}
-
 func NewRepo(repoPathOrURL string) (*Repo, error) {
 	// Handle HTTP URL case
 	if strings.HasPrefix(repoPathOrURL, "http") {
