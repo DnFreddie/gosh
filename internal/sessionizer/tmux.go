@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -39,35 +41,46 @@ type TmuxWindow struct {
 	SessionName string
 }
 
-// Get windows for specific session(s)
-// If no sessions provided or "*" in list, returns windows for all sessions
+// GetWindows returns a sorted list of windows for specific session(s).
+// If no sessions are provided or "*" is in the list, it returns windows for all sessions.
 func (t *Tmux) GetWindows(sessionNames ...string) ([]TmuxWindow, error) {
-	format := "#{session_name}|#{window_index}|#{window_name}"
-	var args []string
+	var allWindows []TmuxWindow
 
-	getAllSessions := len(sessionNames) == 0
-	for _, name := range sessionNames {
-		if name == "*" {
-			getAllSessions = true
-			break
-		}
-	}
+	getAllSessions := len(sessionNames) == 0 || slices.Contains(sessionNames, "*")
 
 	if getAllSessions {
-		args = []string{"list-windows", "-a", "-F", format}
-	} else if len(sessionNames) == 1 {
-		args = []string{"list-windows", "-t", sessionNames[0], "-F", format}
+		windows, err := t.queryWindows("-a")
+		if err != nil {
+			return nil, err
+		}
+		allWindows = windows
 	} else {
-		var allWindows []TmuxWindow
-		for _, sessionName := range sessionNames {
-			windows, err := t.GetWindows(sessionName)
+		for _, name := range sessionNames {
+
+			if name == "" {
+				continue
+			}
+			windows, err := t.queryWindows("-t", name)
 			if err != nil {
 				return nil, err
 			}
 			allWindows = append(allWindows, windows...)
 		}
-		return allWindows, nil
 	}
+
+	slices.SortFunc(allWindows, func(a, b TmuxWindow) int {
+		if a.SessionName != b.SessionName {
+			return strings.Compare(a.SessionName, b.SessionName)
+		}
+		return a.Index - b.Index
+	})
+
+	return allWindows, nil
+}
+
+func (t *Tmux) queryWindows(extraArgs ...string) ([]TmuxWindow, error) {
+	format := "#{session_name}|#{window_index}|#{window_name}"
+	args := append([]string{"list-windows", "-F", format}, extraArgs...)
 
 	stdout, err := t.Run(args...)
 	if err != nil {
@@ -75,9 +88,7 @@ func (t *Tmux) GetWindows(sessionNames ...string) ([]TmuxWindow, error) {
 	}
 
 	var windows []TmuxWindow
-	lines := strings.Split(strings.TrimSpace(stdout), "\n")
-
-	for _, line := range lines {
+	for _, line := range strings.Split(strings.TrimSpace(stdout), "\n") {
 		if line == "" {
 			continue
 		}
@@ -87,20 +98,16 @@ func (t *Tmux) GetWindows(sessionNames ...string) ([]TmuxWindow, error) {
 			continue
 		}
 
-		index, err := strconv.Atoi(parts[1])
-		if err != nil {
-			continue
-		}
-
+		index, _ := strconv.Atoi(parts[1])
 		windows = append(windows, TmuxWindow{
 			SessionName: parts[0],
 			Index:       index,
 			Name:        parts[2],
 		})
 	}
-
 	return windows, nil
 }
+
 func (t *Tmux) UpdatePosition(sessionName string) {
 	for i := range t.Sessions {
 		if t.Sessions[i].Name == sessionName {
@@ -112,37 +119,65 @@ func (t *Tmux) UpdatePosition(sessionName string) {
 }
 
 func (t *Tmux) Run(args ...string) (string, error) {
-	var stdout, stderr bytes.Buffer
-	var cmd *exec.Cmd
-
-	if os.Getenv("TMUX") == "" {
-		cmdArgs := []string{"-c", "tmux " + strings.Join(args, " ")}
-		cmd = exec.Command("bash", cmdArgs...)
-	} else {
-		cmd = exec.Command("tmux", args...)
+	if len(args) == 0 {
+		return "", fmt.Errorf("no command specified")
 	}
 
+	if err := t.requiresTerminal(args[0]); err != nil {
+		return "", err
+	}
+
+	cmd := t.buildCommand(args)
+	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	err := cmd.Run()
 
-	if err != nil {
-		fmt.Println(stderr.String())
-		return stderr.String(), err
+	if err := cmd.Run(); err != nil {
+		fmt.Fprint(os.Stderr, stderr.String())
+		return "", fmt.Errorf("%w: %s", err, stderr.String())
 	}
 
 	return stdout.String(), nil
 }
 
-func (t *Tmux) HasSession(session_name string) (bool, error) {
-	_, err := t.Run("has-session", "-t", session_name)
-	if err != nil {
-		if _, ok := err.(*exec.ExitError); ok {
-			return false, nil
-		}
-		return false, err
+func (t *Tmux) requiresTerminal(command string) error {
+	insideTmux := os.Getenv("TMUX") != ""
+
+	if command == "attach-session" || command == "attach" {
+		return fmt.Errorf("'%s' requires direct terminal access", command)
 	}
-	return true, nil
+	if command == "switch-client" && !insideTmux {
+		return fmt.Errorf("'switch-client' requires terminal when outside tmux")
+	}
+	return nil
+}
+
+func (t *Tmux) buildCommand(args []string) *exec.Cmd {
+	if os.Getenv("TMUX") != "" {
+		return exec.Command("tmux", args...)
+	}
+
+	// Quote args with special characters
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		if strings.ContainsAny(arg, " |{}()?$`\"\\") {
+			quoted[i] = "'" + strings.ReplaceAll(arg, "'", "'\\''") + "'"
+		} else {
+			quoted[i] = arg
+		}
+	}
+
+	return exec.Command("bash", "-c", "tmux "+strings.Join(quoted, " "))
+}
+
+func (t *Tmux) HasSession(sessionName string) (bool, error) {
+	stdout, err := t.Run("list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		return false, fmt.Errorf("failed to list sessions: %w", err)
+	}
+
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	return slices.Contains(lines, sessionName), nil
 }
 
 func parseSessions(line string) (TmuxSession, error) {
@@ -216,11 +251,11 @@ func (t *Tmux) GetSessions() ([]TmuxSession, error) {
 		if s == "" {
 			continue
 		}
-		parsed_session, err := parseSessions(s)
+		parsedSessions, err := parseSessions(s)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse tmux session: %w", err)
 		}
-		tmuxSessions = append(tmuxSessions, parsed_session)
+		tmuxSessions = append(tmuxSessions, parsedSessions)
 	}
 
 	return tmuxSessions, nil
@@ -229,36 +264,52 @@ func (t *Tmux) GetSessions() ([]TmuxSession, error) {
 func (t *Tmux) SwitchSession(sessionName string) error {
 	t.UpdatePosition(sessionName)
 
-	var err error
 	if os.Getenv("TMUX") == "" {
-		_, err = t.Run("attach-session", "-t", sessionName)
-	} else {
-		_, err = t.Run("switch-client", "-t", sessionName)
-	}
+		tmuxPath, err := exec.LookPath("tmux")
+		if err != nil {
+			return fmt.Errorf("tmux not found in PATH: %w", err)
+		}
 
-	if err != nil {
-		return fmt.Errorf("failed to switch to the session %v: %w", sessionName, err)
+		if err := syscall.Exec(tmuxPath, []string{"tmux", "attach-session", "-t", sessionName}, os.Environ()); err != nil {
+			return fmt.Errorf("failed to attach to session %s: %w", sessionName, err)
+		}
+		return nil
+	} else {
+		_, err := t.Run("switch-client", "-t", sessionName)
+		if err != nil {
+			return fmt.Errorf("failed to switch to the session %v: %w", sessionName, err)
+		}
+		return nil
 	}
-	return nil
 }
 
-// Switch to a specific window in a session
+// SwitchWindow  to a specific window in a session
 func (t *Tmux) SwitchWindow(sessionName string, windowIndex int) error {
 	target := fmt.Sprintf("%s:%d", sessionName, windowIndex)
 
-	var err error
 	if os.Getenv("TMUX") == "" {
-		_, err = t.Run("attach-session", "-t", target)
+		// When not in tmux, use exec to replace the current process with tmux attach-session
+		// This ensures tmux gets proper access to the terminal
+		tmuxPath, err := exec.LookPath("tmux")
+		if err != nil {
+			return fmt.Errorf("tmux not found in PATH: %w", err)
+		}
+
+		if err := syscall.Exec(tmuxPath, []string{"tmux", "attach-session", "-t", target}, os.Environ()); err != nil {
+			return fmt.Errorf("failed to attach to window %s:%d: %w", sessionName, windowIndex, err)
+		}
+		// This should never be reached
+		return fmt.Errorf("terminal error: tmux exec returned without error")
 	} else {
-		_, err = t.Run("switch-client", "-t", target)
-	}
+		// When already in tmux, use switch-client
+		_, err := t.Run("switch-client", "-t", target)
+		if err != nil {
+			return fmt.Errorf("failed to switch to window %d in session %v: %w", windowIndex, sessionName, err)
+		}
 
-	if err != nil {
-		return fmt.Errorf("failed to switch to window %d in session %v: %w", windowIndex, sessionName, err)
+		t.UpdatePosition(sessionName)
+		return nil
 	}
-
-	t.UpdatePosition(sessionName)
-	return nil
 }
 
 func (t *Tmux) CreateSession(name string, absPath string) error {
