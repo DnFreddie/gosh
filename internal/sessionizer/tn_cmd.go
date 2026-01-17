@@ -85,13 +85,19 @@ var windowsCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-
-		choice, err := busybox.RunTerm(windows, func(w TmuxWindow) string {
-			return fmt.Sprintf("%s  %s  %s",
-				busybox.InColors(busybox.Yellow, fmt.Sprintf("%d", w.Index)),
-				busybox.InColors(busybox.BrightGreen, w.SessionName),
-				busybox.InColors(busybox.BrightWhite, w.Name),
-			)
+		choice, err := busybox.RunTermGrouped(windows, busybox.ItemFormatter[TmuxWindow]{
+			ToString: func(w TmuxWindow) string {
+				windowName := fmt.Sprintf("%-25s", w.Name)
+				sessionInfo := fmt.Sprintf("[%d]", w.Index)
+				return fmt.Sprintf("%s  %s",
+					busybox.InColors(busybox.BrightWhite, windowName),
+					busybox.InColors(busybox.BrightBlack, sessionInfo),
+				)
+			},
+			GetGroup: func(w TmuxWindow) string {
+				return w.SessionName
+			},
+			Separator: busybox.InColors(busybox.BrightCyan, "● {{GROUP}}"),
 		})
 		if err != nil {
 			return err
