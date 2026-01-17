@@ -5,12 +5,25 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"sort"
 	"strings"
 	"syscall"
 )
 
+// ItemFormatter allows customizing display with optional grouping
+type ItemFormatter[T any] struct {
+	ToString  func(T) string
+	GetGroup  func(T) string // Optional: return group name for grouping
+	Separator string         // Optional: custom separator between groups (default: blank line)
+}
+
+// RunTerm is the backward-compatible simple version
 func RunTerm[T any](items []T, toString func(T) string) (T, error) {
+	return RunTermGrouped(items, ItemFormatter[T]{
+		ToString: toString,
+	})
+}
+
+func RunTermGrouped[T any](items []T, formatter ItemFormatter[T]) (T, error) {
 	var zero T
 	if len(items) == 0 {
 		return zero, fmt.Errorf("no items available")
@@ -18,9 +31,27 @@ func RunTerm[T any](items []T, toString func(T) string) (T, error) {
 
 	lookup := make(map[string]T)
 	displayItems := make([]string, 0, len(items))
+	lastGroup := ""
+
 	for _, item := range items {
-		s := toString(item)
-		lookup[s] = item
+		// Add group separator/header
+		if formatter.GetGroup != nil {
+			group := formatter.GetGroup(item)
+			if group != lastGroup {
+				if lastGroup != "" {
+					displayItems = append(displayItems, "")
+				}
+				// Add custom separator with group name replacement
+				if formatter.Separator != "" {
+					sep := strings.ReplaceAll(formatter.Separator, "{{GROUP}}", group)
+					displayItems = append(displayItems, sep) // Separator - NOT in lookup
+				}
+				lastGroup = group
+			}
+		}
+
+		s := formatter.ToString(item)
+		lookup[s] = item // Only actual items go in lookup
 		displayItems = append(displayItems, s)
 	}
 
@@ -31,11 +62,8 @@ func RunTerm[T any](items []T, toString func(T) string) (T, error) {
 		return zero, fmt.Errorf("getting terminal size: %w", err)
 	}
 
-	terminalHeight := term.Height()
-	termHeight := int(float64(terminalHeight) * 0.8)
-	if termHeight < 5 {
-		termHeight = 5
-	}
+	termHeight := int(float64(term.Height()) * 0.8)
+	termHeight = max(5, termHeight)
 
 	term.EnterAltBuffer()
 	defer term.ExitAltBuffer()
@@ -49,115 +77,226 @@ func RunTerm[T any](items []T, toString func(T) string) (T, error) {
 		Quit(term)
 	}()
 
-	var input string
-	var selectionIndex, scrollOffset int
+	sel := &selector[T]{
+		items:      displayItems,
+		termHeight: termHeight,
+	}
 
 	for {
-		// Filter strings using the input
-		filteredStrings := filterStrings(displayItems, input)
+		filtered := sel.filter(lookup)
+		sel.clampSelection(len(filtered))
+		sel.adjustScroll(filtered, lookup)
 
-		if len(filteredStrings) == 0 {
-			selectionIndex, scrollOffset = 0, 0
-		} else if selectionIndex >= len(filteredStrings) {
-			selectionIndex = len(filteredStrings) - 1
-		}
-
-		if selectionIndex < scrollOffset {
-			scrollOffset = selectionIndex
-		} else if selectionIndex >= scrollOffset+termHeight {
-			scrollOffset = selectionIndex - termHeight + 1
-		}
-
-		screen := buildScreenStrings(input, filteredStrings, selectionIndex, scrollOffset, termHeight)
-
-		fmt.Print(screen)
+		fmt.Print(sel.render(filtered))
 
 		key, r := term.Read()
-
-		switch key {
-		case CtrlC, Escape:
-			return zero, fmt.Errorf("cancelled")
-		case Backspace:
-			if len(input) > 0 {
-				input = input[:len(input)-1]
-				selectionIndex, scrollOffset = 0, 0
+		if sel.handleInput(key, r, filtered, lookup) {
+			if sel.cancelled {
+				return zero, fmt.Errorf("cancelled")
 			}
-		case Enter:
-			if len(filteredStrings) > 0 {
-				selectedStr := filteredStrings[selectionIndex]
-				return lookup[selectedStr], nil
-			}
-		case UpArrow:
-			if selectionIndex > 0 {
-				selectionIndex--
-			}
-		case DownArrow:
-			if selectionIndex < len(filteredStrings)-1 {
-				selectionIndex++
-			}
-		case Other:
-			if r != 0 && !isControlRune(r) {
-				input += string(r)
-				selectionIndex, scrollOffset = 0, 0
-			}
+			return sel.selected, nil
 		}
 	}
 }
 
-func filterStrings(items []string, input string) []string {
-	filtered := make([]string, 0, len(items))
-	inputLower := strings.ToLower(input)
-	for _, s := range items {
-		if strings.Contains(strings.ToLower(s), inputLower) {
-			filtered = append(filtered, s)
+type selector[T any] struct {
+	items          []string
+	input          string
+	selectionIndex int
+	scrollOffset   int
+	termHeight     int
+	selected       T
+	cancelled      bool
+}
+
+func (s *selector[T]) filter(lookup map[string]T) []string {
+	if s.input == "" {
+		return s.items
+	}
+
+	inputLower := strings.ToLower(s.input)
+
+	// Track matching items and their preceding separators
+	filtered := make([]string, 0)
+	pendingSeparators := make([]string, 0) // Store separators until we find a match
+	groupMatches := false                  // Track if the current group header matches
+
+	for _, item := range s.items {
+		// Check if this is a separator (not in lookup)
+		_, isActualItem := lookup[item]
+
+		if !isActualItem {
+
+			// Check if this separator (group name) matches the filter
+			if item != "" && strings.Contains(strings.ToLower(item), inputLower) {
+				groupMatches = true
+			} else {
+				groupMatches = false
+			}
+
+			pendingSeparators = append(pendingSeparators, item)
+			continue
+		}
+
+		itemMatches := strings.Contains(strings.ToLower(item), inputLower)
+
+		if itemMatches || groupMatches {
+
+			filtered = append(filtered, pendingSeparators...)
+			pendingSeparators = nil
+
+			filtered = append(filtered, item)
+		} else {
+			pendingSeparators = nil
 		}
 	}
-	sort.Strings(filtered)
+
 	return filtered
 }
 
-func buildScreenStrings(input string, items []string, selectionIndex, scrollOffset, termHeight int) string {
-	var buf bytes.Buffer
+func (s *selector[T]) clampSelection(max int) {
+	if max == 0 {
+		s.selectionIndex = 0
+		return
+	}
+	if s.selectionIndex >= max {
+		s.selectionIndex = max - 1
+	}
+}
 
-	buf.WriteString(MoveCursorHome)
-	buf.WriteString(ClearToEOS)
+func (s *selector[T]) adjustScroll(filtered []string, lookup map[string]T) {
+	if len(filtered) == 0 {
+		s.selectionIndex = 0
+		s.scrollOffset = 0
+		return
+	}
 
-	buf.WriteString(InColors(Cyan, "> "))
-	buf.WriteString(input)
-	buf.WriteString(CRLF)
-	buf.WriteString(CRLF)
+	// Clamp selection to valid range first
+	if s.selectionIndex < 0 {
+		s.selectionIndex = 0
+	}
+	if s.selectionIndex >= len(filtered) {
+		s.selectionIndex = len(filtered) - 1
+	}
 
-	if len(items) == 0 {
-		buf.WriteString(InColors(Red, "No results found."))
-		buf.WriteString(CRLF)
-	} else {
-		endIndex := scrollOffset + termHeight
-		if endIndex > len(items) {
-			endIndex = len(items)
+	// Skip forward over separators (items not in lookup)
+	for s.selectionIndex < len(filtered) {
+		if _, exists := lookup[filtered[s.selectionIndex]]; exists {
+			break // Found a valid item
 		}
+		s.selectionIndex++
+	}
 
-		for i := scrollOffset; i < endIndex; i++ {
-			itemStr := items[i]
-			if i == selectionIndex {
-				buf.WriteString(InColors(Blue, "> "+itemStr))
-			} else {
-				buf.WriteString("  ")
-				buf.WriteString(itemStr)
+	// If we went past the end, go backwards to find a valid item
+	if s.selectionIndex >= len(filtered) {
+		s.selectionIndex = len(filtered) - 1
+		for s.selectionIndex >= 0 {
+			if _, exists := lookup[filtered[s.selectionIndex]]; exists {
+				break // Found a valid item
 			}
-			buf.WriteString(CRLF)
-		}
-
-		if len(items) > termHeight {
-			visibleEnd := scrollOffset + termHeight
-			if visibleEnd > len(items) {
-				visibleEnd = len(items)
-			}
-			buf.WriteString(CRLF)
-			buf.WriteString(InColors(Cyan, fmt.Sprintf("[%d/%d]", visibleEnd, len(items))))
+			s.selectionIndex--
 		}
 	}
 
+	// If still no valid selection found, reset to 0
+	if s.selectionIndex < 0 {
+		s.selectionIndex = 0
+	}
+
+	// Adjust scroll to keep selection visible
+	if s.selectionIndex < s.scrollOffset {
+		s.scrollOffset = s.selectionIndex
+	} else if s.selectionIndex >= s.scrollOffset+s.termHeight {
+		s.scrollOffset = s.selectionIndex - s.termHeight + 1
+	}
+
+	// Ensure scroll offset is valid
+	if s.scrollOffset < 0 {
+		s.scrollOffset = 0
+	}
+}
+
+func (s *selector[T]) render(filtered []string) string {
+	var buf bytes.Buffer
+
+	buf.WriteString(MoveCursorHome + ClearToEOS)
+	buf.WriteString(InColors(Cyan, "> ") + s.input + CRLF + CRLF)
+
+	if len(filtered) == 0 {
+		buf.WriteString(InColors(Red, "No results found.") + CRLF)
+		return buf.String()
+	}
+
+	end := min(s.scrollOffset+s.termHeight, len(filtered))
+	for i := s.scrollOffset; i < end; i++ {
+		// Empty separator line
+		if filtered[i] == "" {
+			buf.WriteString(CRLF)
+			continue
+		}
+
+		if i == s.selectionIndex {
+			buf.WriteString(InColors(Blue, "> "+filtered[i]))
+		} else {
+			buf.WriteString("  " + filtered[i])
+		}
+		buf.WriteString(CRLF)
+	}
+
+	if len(filtered) > s.termHeight {
+		buf.WriteString(CRLF + InColors(Cyan, fmt.Sprintf("[%d/%d]", end, len(filtered))))
+	}
+
 	return buf.String()
+}
+
+func (s *selector[T]) handleInput(key Key, r rune, filtered []string, lookup map[string]T) bool {
+	switch key {
+	case CtrlC, Escape:
+		s.cancelled = true
+		return true
+
+	case Backspace:
+		if len(s.input) > 0 {
+			s.input = s.input[:len(s.input)-1]
+			s.selectionIndex, s.scrollOffset = 0, 0
+		}
+
+	case Enter:
+		if s.selectionIndex < len(filtered) {
+			selectedStr := filtered[s.selectionIndex]
+			// Only return if it's actually in the lookup (not a separator)
+			if item, exists := lookup[selectedStr]; exists {
+				s.selected = item
+				return true
+			}
+		}
+
+	case UpArrow:
+		// Move up, skipping separators (items not in lookup)
+		for i := s.selectionIndex - 1; i >= 0; i-- {
+			if _, exists := lookup[filtered[i]]; exists {
+				s.selectionIndex = i
+				break
+			}
+		}
+
+	case DownArrow:
+		// Move down, skipping separators (items not in lookup)
+		for i := s.selectionIndex + 1; i < len(filtered); i++ {
+			if _, exists := lookup[filtered[i]]; exists {
+				s.selectionIndex = i
+				break
+			}
+		}
+
+	case Other:
+		if r != 0 && !isControlRune(r) {
+			s.input += string(r)
+			s.selectionIndex, s.scrollOffset = 0, 0
+		}
+	}
+	return false
 }
 
 func isControlRune(r rune) bool {
